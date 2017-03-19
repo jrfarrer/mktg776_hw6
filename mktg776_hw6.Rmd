@@ -1,0 +1,269 @@
+---
+title: "MKTG776 HW5"
+author: "Jordan Farrer"
+date: '2017-02-24'
+output:
+  bookdown::pdf_document2:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+  bookdown::html_document2:
+    css: style.css
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = 'center', size = 'small', fig.pos = 'H',
+                      fig.width = 6, fig.height = 3.5)
+
+knitr::knit_hooks$set(
+          size = function(before, options, envir) {
+                  if (before) return(paste0("\n \\", options$size, "\n\n"))
+                  else return("\n\n \\normalsize \n")
+                  }
+          , inline = function(x) {if(!is.numeric(x)){ x }else{ prettyNum(round(x,2), big.mark=",") } }
+          )
+```
+
+```{r report-load-packages, results = 'hide'}
+pacman::p_load(tidyverse, forcats, pander, stringr, lubridate, ggrepel, extrafont, jrfTools)
+```
+
+```{r report-additional-setup, include = FALSE}
+options(scipen=999)
+panderOptions('digits', 8)
+panderOptions('round', 4)
+panderOptions('keep.trailing.zeros', TRUE)
+
+data_dir <- 'data/'
+viz_dir <- 'viz/'
+
+map(c(data_dir, viz_dir), dir.create, showWarnings = FALSE)
+```
+
+# Question 1
+
+We will use the "Regular" churn dataset from HW1:
+
+```{r}
+hw1_churn_data <- readxl::read_excel("Homework data.xlsx", sheet = 1, col_names = c('year', 'regular', 'high_end','empty'), skip = 1)
+
+regular_cust <- 
+  hw1_churn_data %>%
+  select(year, regular) %>%
+  filter(complete.cases(.)) %>%
+  rename(customers = regular)
+```
+
+```{r}
+regular_cust %>%
+  pander(caption = "Regular Customers from HW1 Dataset")
+```
+
+
+## Parts a and b
+
+```{r}
+fn_st <- function(t, gamma, delta, c) {
+  return(exp(lbeta(gamma, delta + t^c) - lbeta(gamma, delta)))
+}
+
+fn_ll <- function(par, data, type) {
+    if (type == 'BdW') {
+      c = par[3]
+    } else {
+      c = 1
+    }
+    
+    data2 <- 
+      data %>%
+        mutate(
+            lost = lag(customers) - customers
+          , st = fn_st(t = year, par[1], par[2], c)
+          , pt = lag(st) - st
+          , ll = lost * log(pt)
+        )
+      
+    ll <- sum(data2$ll, na.rm = TRUE) + log(1 - sum(data2$pt, na.rm = TRUE)) * rev(data2$customers)[1]
+    return(-ll)
+}
+
+fn_model <- function(data, type) {
+  
+  pars <- nlminb(start = c(1,1,1), fn_ll, lower = c(0, 0, 0), upper = c(Inf, Inf, Inf), data = data, type = type)$par
+  return(
+    data_frame(model = type ,gamma = pars[1], delta = pars[2], c = if_else(type == "BdW", pars[3], NA_real_))
+  )
+  
+}
+
+seven_year <- 
+  regular_cust %>%
+  filter(year <= 7)
+
+BdW_sBG_pars <- 
+  fn_model(seven_year, type = "BdW") %>%
+  bind_rows(fn_model(seven_year, type = "sBG")) %>%
+  rowwise() %>%
+  mutate(ll = -1 * fn_ll(par = c(gamma, delta, c), seven_year, model))
+```
+
+Using maximum likelihood estimation we fit a Beta-discrete-Weibull (BdW) and a shifted Beta-Geometric (sBG) model using the first 7-years as our training data. Below are the model parameters:
+
+```{r}
+BdW_sBG_pars %>%
+  pander(missing = "", caption = "Model Parameters using the first 7-years as training data", round = c(NA, 4, 4, 4, 2))
+```
+
+We see that the parameters $\gamma$ and $\delta$ are quite different between the BdW and the sBG model. Also, the fact that $c > 1$ means we have positive duration depedence, i.e. churn probability increases over time. The survival function for the sBG is the same as the BdW, with $c = 1$,
+
+\begin{equation}
+\ S(t|\gamma,\delta, c) = \frac{B(\gamma, \delta + t^c)}{B(\gamma, \delta)}
+\end{equation}
+
+Noteably, the $\delta$ parameter is greater than 1, implying a very different type heterogeneity. We can see this is the different distributions of the mixing distribution beta. 
+
+```{r}
+BdW_sBG_pars %>%
+  mutate(
+    beta = map2(gamma, delta, function(.x, .y) {rbeta(100000, .x, .y)})
+  ) %>%
+  unnest() %>%
+  ggplot(aes(x = beta, colour = model)) +
+  geom_line(stat = "density") +
+  theme_jrf(users_v = "rstudio") +
+  theme(legend.position	= "top") +
+  labs(x = expression(theta), y = expression(f(theta)), colour = NULL, 
+       title = "Estimated Beta Distributions of Theta") +
+  scale_colour_manual(values = c(`BdW` = pal538[['blue']], `sBG` = pal538[['green']]))
+```
+
+In the plot above, we see that the shape of the heterogeneity is U-shaped: the density drops as $\theta$ increases and then increases again around $\theta = 0.75$. 
+
+```{r}
+BdW_sBG_curves <- 
+  BdW_sBG_pars %>%
+    crossing(year = regular_cust$year) %>%
+    mutate(st = fn_st(t = year, gamma, delta, if_else(is.na(c), 1.0, c))) %>%
+    select(year, model, st) %>%
+    bind_rows(
+      regular_cust %>%
+        mutate(
+            model = "Actual"
+          , st = customers / max(customers)
+        ) %>%
+        select(-customers)
+    ) %>%
+    group_by(model) %>%
+    mutate(rt = st / lag(st)) %>%
+    ungroup()
+```
+
+In the survival curves below see nearly no difference between the two models (and the actual). To the right of the grey-line represents out-of-sample performance.
+
+```{r}
+BdW_sBG_curves %>%
+  ggplot(aes(x = year, y = st, color = model)) +
+  geom_vline(aes(xintercept = 7), alpha = 0.5) +
+  geom_line() +
+  scale_x_continuous(limits = c(0,12), expand = c(0.01, 0.01)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Year", y = "% Customers Surviving", title = "Survival Curve of BdW and sBG Models",
+       subtitle = "Regular customers, 7-year holdout", color = NULL) +
+  theme_jrf(users_v = "rstudio") +
+  theme(legend.position = 'top') +
+  scale_colour_manual(values = c(`BdW` = pal538[['blue']], `Actual` = pal538[['red']], `sBG` = pal538[['green']]))
+```
+
+There is slightly greater difference between the models in the retention curve. Though $c > 1$ for the BdW, the retention curve is not U-shaped. This indicates that the effect of heterogeneity swamps individual-level positive duration dependence to yield a monotonically increasing aggregate retention curve. 
+
+```{r}
+BdW_sBG_curves %>%
+  ggplot(aes(x = year, y = rt, color = model)) +
+  geom_vline(aes(xintercept = 7), alpha = 0.5) +
+  geom_line() +
+  scale_x_continuous(limits = c(0,12), expand = c(0.01, 0.01)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Year", y = "Retention Rate", title = "Retention Rate of BdW and sBG Models",
+       subtitle = "Regular customers, 7-year holdout", color = NULL) +
+  theme_jrf(users_v = "rstudio") +
+  theme(legend.position = 'top') +
+  scale_colour_manual(values = c(`BdW` = pal538[['blue']], `Actual` = pal538[['red']], `sBG` = pal538[['green']]))
+```
+
+We perform a likelihood ratio test (df = 1) and find that the additional parameter $c$ is not worth having in the model. We can say that duration dependence does not matter as much as heterogenity.
+
+```{r}
+BdW_sBG_pars %>%
+  select(model, ll) %>%
+  spread(model, ll) %>%
+  mutate(chisq = 2* (BdW - sBG)) %>%
+  mutate(p.value = pchisq(chisq, df = 1, lower.tail = FALSE)) %>%
+  gather(metric, `&nbsp;`) %>%
+  pander(caption = "")
+```
+
+## Part c
+
+```{r}
+fn_derl <- function(data, renewals, d) {
+  base <- (data %>% filter(year == renewals))$st
+  
+  data2 <- 
+    data %>%
+      mutate(
+        st_given_n = if_else(year > renewals,  st / base, NA_real_)
+        , disc = if_else(year > renewals, 1 / (1 + d)^(year - (renewals + 1)), NA_real_)
+        , discounted_st_given_n = st_given_n * disc
+      )
+  
+  derl <- sum(data2$discounted_st_given_n, na.rm = TRUE)
+  return(derl)
+}
+
+rtl <- 
+  BdW_sBG_pars %>%
+    crossing(year = 0:1000) %>%
+    mutate(st = fn_st(t = year, gamma, delta, if_else(is.na(c), 1.0, c))) %>%
+    crossing(renewals = 0:7) %>%
+    select(model, renewals, year, st) %>%
+    group_by(model, renewals) %>%
+    nest() %>%
+    rowwise() %>%
+    mutate(derl = fn_derl(data, renewals, 0.1)) %>%
+    ungroup() %>%
+    mutate(rlv = 100 * derl)
+```
+
+
+We compute the DERL for a customer who has renewed at $t = 0, 1, ..., 7$ times using the BdW and sBG model. We multiple the DERL by $100 to find the residual lifetime value (RVL). Below is a plot that compares the two models: 
+
+```{r}
+rtl %>%
+  ggplot(aes(x = renewals, y = rlv, color = model)) +
+  geom_line() +
+  scale_x_continuous(limits = c(0,7), expand = c(0.01, 0.03), breaks = 0:7) +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(x = "Renewals", y = "Residual Lifetime Value", title = "Discounted Expected Residual Lifetime Value (RVL)",
+       caption = "Renewal = $100, Discount Rate = 0.1 p.a.", color = NULL) +
+  theme_jrf(users_v = "rstudio") +
+  theme(legend.position = 'top') +
+  scale_colour_manual(values = c(`BdW` = pal538[['blue']], `sBG` = pal538[['green']]))
+```
+
+First, we see that predicted RLV increases dramatically with tenure. In other words, the longer they have stayed the more value they will be in the future. We see that the RVL for the BdW and the sBG is similar for 0 and 1 renewals, but different as the number of renewals increases. This can be attributed to the positive duration dependence in the BdW model, where at the individual-level the model indicates that the probability of churning increases over time (though heterogeneity swamps duration dependence. This implies that the remaining customers will be more valuable and hence have a higher RLV than predicted by the sBG which does not include duration dependence.
+
+# Question 2
+
+
+## Part a
+
+
+## Part b
+
+
+## Part c
