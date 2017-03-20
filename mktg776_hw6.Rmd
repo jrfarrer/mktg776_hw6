@@ -3,17 +3,17 @@ title: "MKTG776 HW6"
 author: "Jordan Farrer"
 date: '2017-03-22'
 output:
+  bookdown::pdf_document2:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
   bookdown::html_document2:
     css: style.css
     number_sections: yes
     toc: yes
     toc_depth: 2
     toc_float: yes
-  bookdown::pdf_document2:
-    fig_caption: yes
-    number_sections: yes
-    toc: yes
-    toc_depth: 2
 ---
 
 ```{r setup, include = FALSE}
@@ -135,7 +135,6 @@ BdW_sBG_pars %>%
   ggplot(aes(x = beta, colour = model)) +
   geom_line(stat = "density") +
   theme_jrf(users_v = "rstudio") +
-  theme(legend.position	= "top") +
   labs(x = expression(theta), y = expression(f(theta)), colour = NULL, 
        title = "Estimated Beta Distributions of Theta") +
   scale_colour_manual(values = c(`BdW` = pal538[['blue']], `sBG` = pal538[['green']]))
@@ -174,7 +173,6 @@ BdW_sBG_curves %>%
   labs(x = "Year", y = "% Customers Surviving", title = "Survival Curve of BdW and sBG Models",
        subtitle = "Regular customers, 7-year holdout", color = NULL) +
   theme_jrf(users_v = "rstudio") +
-  theme(legend.position = 'top') +
   scale_colour_manual(values = c(`BdW` = pal538[['blue']], `Actual` = pal538[['red']], 
                                  `sBG` = pal538[['green']]))
 ```
@@ -191,7 +189,6 @@ BdW_sBG_curves %>%
   labs(x = "Year", y = "Retention Rate", title = "Retention Rate of BdW and sBG Models",
        subtitle = "Regular customers, 7-year holdout", color = NULL) +
   theme_jrf(users_v = "rstudio") +
-  theme(legend.position = 'top') +
   scale_colour_manual(values = c(`BdW` = pal538[['blue']], `Actual` = pal538[['red']], 
                                  `sBG` = pal538[['green']]))
 ```
@@ -253,7 +250,6 @@ rtl %>%
        title = "Discounted Expected Residual Lifetime Value (RVL)",
        caption = "Renewal = $100, Discount Rate = 0.1 p.a.", color = NULL) +
   theme_jrf(users_v = "rstudio") +
-  theme(legend.position = 'top') +
   scale_colour_manual(values = c(`BdW` = pal538[['blue']], `sBG` = pal538[['green']]))
 ```
 
@@ -364,7 +360,6 @@ histogram_data %>%
   scale_x_continuous(breaks = 0:11, minor_breaks = NULL) +
   scale_y_continuous(labels = scales::comma) +
   theme_jrf(users_v = "rstudio") +
-  theme(legend.position = 'top') +
   scale_fill_manual(values = c(`Actual` = pal538[['red']], `Predicted` = pal538[['blue']]))
 ```
 
@@ -407,7 +402,6 @@ incremental_data %>%
   scale_x_continuous(breaks = 1:11, minor_breaks = NULL) +
   scale_y_continuous(labels = scales::comma, limits = c(0, NA)) +
   theme_jrf(users_v = "rstudio") +
-  theme(legend.position = 'top') +
   scale_colour_manual(values = c(`Actual` = pal538[['red']], `Predicted` = pal538[['blue']]))
 ```
 
