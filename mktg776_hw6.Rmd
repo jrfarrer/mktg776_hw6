@@ -327,7 +327,7 @@ fn_bgbb_px <- function(alpha, beta, gamma, delta, x, n) {
   summation <- 0
   if (upper_limit >= x) {
     for (i in x:upper_limit) {
-      summation <- summation + 
+      summation <- summation + choose(i, x) *
           exp(lbeta(alpha + x, beta + i - x) - lbeta(alpha, beta)) * 
           exp(lbeta(gamma + 1, delta + i) - lbeta(gamma, delta))
     }
@@ -343,7 +343,7 @@ histogram_data <-
     summarise(Actual = sum(donors)) %>%
     crossing(bgbb_params) %>%
     rowwise() %>%
-    mutate(px = fn_bgbb_px(alpha, beta, gamma, delta, x = frequency, 11)) %>%
+    mutate(px = fn_bgbb_px(alpha, beta, gamma, delta, x = frequency, n = 11)) %>%
     ungroup() %>%
     mutate(Predicted = sum(Actual) * px) %>%
     select(frequency, Actual, Predicted) %>%
